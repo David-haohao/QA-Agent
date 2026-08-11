@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能问答系统</title>
+    <link rel="stylesheet" href="/static/css/chat.css">
+</head>
+<body>
+    <!-- 顶部工具栏 -->
+    <header class="top-bar">
+        <div class="top-bar-left">
+            <span class="logo">AI</span>
+            <h1>智能问答系统</h1>
+            <span class="version-badge">v1.0.0</span>
+        </div>
+        <div class="top-bar-right">
+            <button class="icon-btn" id="btn-new-session" title="新会话">+</button>
+            <span class="status-dot" id="status-dot"></span>
+        </div>
+    </header>
+
+    <!-- 主布局：对话区 + 建议面板 -->
+    <div class="main-layout">
+        <!-- 对话区域 -->
+        <main class="chat-area" id="chat-area">
+            <!-- 空状态欢迎页 -->
+            <div class="welcome-screen" id="welcome-screen">
+                <div class="welcome-icon">AI</div>
+                <h2>您好，我是智能问答助手</h2>
+                <p>我可以回答以下领域的问题：</p>
+                <div class="domain-tags">
+                    <span>金融监管法规</span><span>银行业务合规</span>
+                    <span>保险与证券管理</span><span>资本管理</span>
+                    <span>风险管理</span><span>反洗钱与合规</span>
+                </div>
+                <p class="welcome-hint">请在下方输入您的问题</p>
+            </div>
+
+            <!-- 消息列表容器 -->
+            <div class="message-list" id="message-list"></div>
+        </main>
+
+        <!-- 右侧建议面板 -->
+        <aside class="suggestion-panel" id="suggestion-panel">
+            <div class="suggestion-header">
+                <h3>猜你想问</h3>
+                <button class="refresh-btn" id="btn-refresh" title="换一批">↻</button>
+            </div>
+            <div class="suggestion-list" id="suggestion-list">
+                <div class="suggestion-skeleton">加载中...</div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- 底部输入区 -->
+    <footer class="input-area">
+        <div class="input-container">
+            <textarea id="query-input"
+                      placeholder="输入您的问题，Enter 发送，Shift+Enter 换行"
+                      rows="1"
+                      autofocus></textarea>
+            <button id="btn-send" class="send-btn" title="发送">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+                </svg>
+            </button>
+        </div>
+    </footer>
+
+    <!-- 状态栏 -->
+    <div class="status-bar">
+        <span id="status-message">就绪</span>
+        <span class="status-spacer">·</span>
+        <span id="status-session">会话: ...</span>
+        <span class="status-spacer">·</span>
+        <span id="status-time">0.0s</span>
+        <span class="status-spacer">·</span>
+        <span id="status-cost"></span>
+    </div>
+
+    <script src="/static/js/chat.js"></script>
+</body>
+</html>

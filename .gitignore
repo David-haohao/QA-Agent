@@ -1,0 +1,30 @@
+# Operating-system and IDE metadata
+.fseventsd/
+.Spotlight-V100/
+.idea/
+.DS_Store
+**/._*
+
+# The deepagents framework is maintained as its own Git repository.
+deepagents/
+
+# Python build and local runtime files
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+v0/.venv/
+
+# Large or environment-specific assets. Rebuild or download these locally.
+v0/local_models/
+v0/kb_data/
+v0/documents/
+v0/oa_downloads/
+v0/evolution_data/
+v0/models/_test_tokenizer.json
+*.log
+
+# Local credentials; copy config.example.yaml before starting the service.
+v0/config.yaml
+.env
+.env.*
+!.env.example

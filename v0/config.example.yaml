@@ -1,0 +1,99 @@
+# Copy this file to config.yaml and fill in the API keys before starting.
+llm:
+  api_key: ""
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  model: qwen3.6-27b
+  provider: openai
+  max_tokens: 4096
+  temperature: 0.0
+  timeout: 120
+
+embeddings:
+  api_key: ""
+  model: bge-m3
+  url: http://localhost:4000/v1/embeddings
+  batch_size: 256
+  dimension: 1024
+
+reranker:
+  api_key: ""
+  model: bge-reranker-v2-m3
+  url: http://localhost:4000/v1/rerank
+  batch_size: 16
+
+knowledge_base:
+  documents_dir: ./documents
+  kb_data_dir: ./kb_data
+  chroma_collection: qa_knowledge
+  oa:
+    oa_url: http://localhost:8888
+    oa_client:
+      userName: test
+      password: ""
+      loginName: "10455"
+    oa_file_dir: ./oa_downloads
+  chunk_size: 500
+  chunk_overlap: 50
+  dense_top_n: 5
+  sparse_top_n: 5
+  final_top_k: 5
+  min_rerank_score: 0.3
+  embedding_similarity_threshold: 0.3
+  embedding_similarity_release: 0.6
+
+cache:
+  l1_max_size: 2000
+  l1_ttl: 86400
+  l2_ttl: 259200
+  short_memory_max_pairs: 50
+  redis_enabled: false
+  redis_url: redis://localhost:6379/0
+
+pre_processing:
+  completeness_threshold: 0.3
+  domain_confidence_threshold: 0.5
+
+timeout:
+  total: 100000
+  pre_processing: 500
+  cache_query: 300
+  retrieval: 5000
+  llm_generation: 90000
+  post_processing: 3000
+  buffer: 1200
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  workers: 4
+  log_level: info
+
+evolution:
+  sampling_rate: 0.1
+  evolution_data_dir: ./evolution_data
+  feedback_db: feedback.db
+
+domains:
+  - 金融监管与合规
+  - 银行业务管理
+  - 风险管理
+  - 资本市场与证券
+  - 征信与信用
+  - 外汇管理
+  - 保险管理
+
+domain_keywords:
+  - 金融
+  - 风险
+  - 银行
+  - 中国人民银行
+  - 贷款
+  - 金融机构
+  - 利率
+  - 债券
+  - 信用
+  - 股份
+  - 信息
+  - 监管
+  - 资金
+  - 管理

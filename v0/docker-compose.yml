@@ -1,0 +1,35 @@
+# ============================================================
+# 可自我进化的问答智能体系统 — Docker Compose 编排
+#
+# 使用方式:
+#   1. 构建镜像:   docker-compose build
+#   2. 启动服务:   docker-compose up -d
+#   3. 查看日志:   docker-compose logs -f
+#   4. 停止服务:   docker-compose down
+#   5. 首次启动前需构建知识库:
+#      docker-compose run --rm app python run.py build-kb
+# ============================================================
+
+services:
+  app:
+    build:
+      context: ..                    # 父目录，包含 v0/ 和 deepagents/
+      dockerfile: v0/Dockerfile
+    image: qa-agent:latest
+    container_name: qa-agent
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./kb_data:/app/kb_data
+      - ./evolution_data:/app/evolution_data
+      - ./documents:/app/documents:ro
+    environment:
+      - QA_CONFIG_PATH=/app/config.yaml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

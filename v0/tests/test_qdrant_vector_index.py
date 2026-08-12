@@ -92,6 +92,34 @@ class QdrantVectorIndexTests(unittest.TestCase):
         self.assertFalse(self.index.client.collection_exists("qa_knowledge"))
         self.assertFalse(os.path.exists(marker_path))
 
+    def test_indexes_for_same_path_share_one_embedded_client(self):
+        second_index = QdrantVectorIndex(
+            kb_data_dir=self.temp_dir.name,
+            collection_name="qa_knowledge",
+            embedding_client=FakeEmbeddingClient(),
+            dimension=3,
+        )
+        try:
+            self.assertIs(self.index.client, second_index.client)
+
+            self.index.close()
+            self.assertEqual(0, second_index.get_document_count())
+        finally:
+            second_index.close()
+
+    def test_rebuild_keeps_shared_indexes_usable(self):
+        second_index = QdrantVectorIndex(
+            kb_data_dir=self.temp_dir.name,
+            collection_name="qa_knowledge",
+            embedding_client=FakeEmbeddingClient(),
+            dimension=3,
+        )
+        try:
+            self.assertEqual(2, self.index.rebuild(self.chunks))
+            self.assertEqual(2, second_index.get_document_count())
+        finally:
+            second_index.close()
+
 
 class KnowledgeBasePipelineConfigTests(unittest.TestCase):
     def test_uses_storage_neutral_vector_collection_setting(self):

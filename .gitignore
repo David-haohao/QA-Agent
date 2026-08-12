@@ -13,6 +13,9 @@ deepagents/
 *.py[cod]
 .pytest_cache/
 v0/.venv/
+v0/.offline-build-python31210/
+v0/.offline-verify-venv/
+v0/.offline-script-verify/
 
 # Large or environment-specific assets. Rebuild or download these locally.
 v0/local_models/
@@ -21,6 +24,9 @@ v0/documents/
 v0/oa_downloads/
 v0/evolution_data/
 v0/models/_test_tokenizer.json
+v0/download/python/*.exe
+v0/download/wheels/
+v0/download/resolution.json
 *.log
 
 # Local credentials; copy config.example.yaml before starting the service.

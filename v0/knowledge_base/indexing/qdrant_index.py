@@ -2,7 +2,9 @@
 
 import os
 import shutil
+import threading
 import uuid
+import weakref
 from typing import Dict, List
 
 from qdrant_client import QdrantClient, models
@@ -10,6 +12,10 @@ from qdrant_client import QdrantClient, models
 
 class QdrantVectorIndex:
     """Persist and retrieve dense vectors with a local embedded Qdrant store."""
+
+    _clients = {}
+    _instances = {}
+    _clients_lock = threading.Lock()
 
     def __init__(
         self,
@@ -22,10 +28,24 @@ class QdrantVectorIndex:
         self.collection_name = collection_name
         self.embedding_client = embedding_client
         self.dimension = dimension
-        self.qdrant_path = os.path.join(kb_data_dir, "qdrant")
+        self.qdrant_path = os.path.abspath(os.path.join(kb_data_dir, "qdrant"))
         os.makedirs(self.qdrant_path, exist_ok=True)
-        self.client = QdrantClient(path=self.qdrant_path)
+        self._client_key = os.path.normcase(self.qdrant_path)
+        self._closed = False
+        self.client = self._acquire_client()
         self._ensure_collection()
+
+    def _acquire_client(self):
+        """Return the one embedded Qdrant client permitted for this directory."""
+        with self._clients_lock:
+            entry = self._clients.get(self._client_key)
+            if entry is None:
+                entry = {"client": QdrantClient(path=self.qdrant_path), "references": 0}
+                self._clients[self._client_key] = entry
+                self._instances[self._client_key] = weakref.WeakSet()
+            entry["references"] += 1
+            self._instances[self._client_key].add(self)
+            return entry["client"]
 
     def _ensure_collection(self) -> None:
         if self.client.collection_exists(self.collection_name):
@@ -48,12 +68,23 @@ class QdrantVectorIndex:
         """Close and remove the embedded collection files before a full rebuild."""
         if self.client.collection_exists(self.collection_name):
             self.client.delete_collection(self.collection_name)
-        self.client.close()
-        collection_path = os.path.join(
-            self.qdrant_path, "collection", self.collection_name
-        )
-        shutil.rmtree(collection_path, ignore_errors=True)
-        self.client = QdrantClient(path=self.qdrant_path)
+        # Rebuilding is only invoked with the Web service stopped. Keep the
+        # shared registry coherent if this pipeline recreates local storage.
+        with self._clients_lock:
+            entry = self._clients.get(self._client_key)
+            if entry is not None:
+                entry["client"].close()
+            collection_path = os.path.join(
+                self.qdrant_path, "collection", self.collection_name
+            )
+            shutil.rmtree(collection_path, ignore_errors=True)
+            replacement = QdrantClient(path=self.qdrant_path)
+            self._clients[self._client_key] = {
+                "client": replacement,
+                "references": entry["references"] if entry is not None else 1,
+            }
+            for index in self._instances.get(self._client_key, ()):
+                index.client = replacement
 
     def build_index(self, chunks: List[Dict]) -> int:
         """Build a new collection from chunks; retained for pipeline compatibility."""
@@ -179,4 +210,15 @@ class QdrantVectorIndex:
         return sorted(file_names)
 
     def close(self) -> None:
-        self.client.close()
+        if self._closed:
+            return
+        self._closed = True
+        with self._clients_lock:
+            entry = self._clients.get(self._client_key)
+            if entry is None:
+                return
+            entry["references"] -= 1
+            if entry["references"] <= 0:
+                entry["client"].close()
+                self._clients.pop(self._client_key, None)
+                self._instances.pop(self._client_key, None)

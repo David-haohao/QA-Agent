@@ -1,0 +1,22 @@
+{
+    "bundle_format":  "qa-agent-windows-offline-v1",
+    "generated_at":  "2026-08-12T06:29:45.8420550Z",
+    "target":  {
+                   "architecture":  "x86_64",
+                   "os":  "Windows",
+                   "python":  "3.12.10"
+               },
+    "payload":  {
+                    "wheel_files":  135,
+                    "checksum_entries":  140,
+                    "locked_packages":  135,
+                    "wheel_bytes":  427146585,
+                    "python_installer":  "python/python-3.12.10-amd64.exe"
+                },
+    "required_project_assets":  {
+                                    "config":  "Create v0/config.yaml with the reachable LLM endpoint and credentials.",
+                                    "documents":  "Supply current production source documents separately.",
+                                    "local_models":  "Copy v0/local_models with the project; it is not duplicated in download.",
+                                    "local_models_bytes":  4734329173
+                                }
+}

@@ -5,6 +5,7 @@
 
 import os
 import json
+import shutil
 from typing import Dict
 
 
@@ -59,6 +60,10 @@ class KnowledgeBasePipeline:
         print("=" * 60)
         print("开始构建知识库...")
         print("=" * 60)
+
+        # 全量重建不能保留上一批资料的全文和预览，避免新 documents
+        # 导入后仍暴露 Demo 文件的来源预览。
+        self._reset_generated_document_artifacts()
 
         # Phase 1: 提取与切片
         print("[Phase 1] 提取文档内容...")
@@ -165,6 +170,13 @@ class KnowledgeBasePipeline:
             "chunk_count": len(chunks),
             "metadata": metadata,
         }
+
+    def _reset_generated_document_artifacts(self) -> None:
+        """删除由上一轮文档集生成的全文与 HTML 预览文件。"""
+        for directory_name in ("docs_text", "docs_html"):
+            directory_path = os.path.join(self.kb_data_dir, directory_name)
+            if os.path.isdir(directory_path):
+                shutil.rmtree(directory_path)
 
     def _auto_update_domains_config(self, docs: list):
         """根据文档内容自动总结归类domains和domain_keywords，更新config.yaml"""

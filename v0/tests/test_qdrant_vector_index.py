@@ -103,6 +103,25 @@ class KnowledgeBasePipelineConfigTests(unittest.TestCase):
 
         self.assertEqual("qdrant_collection", pipeline.collection_name)
 
+    def test_full_rebuild_removes_stale_generated_document_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs_text = Path(temp_dir) / "docs_text"
+            docs_html = Path(temp_dir) / "docs_html"
+            docs_text.mkdir()
+            docs_html.mkdir()
+            (docs_text / "old-demo.pdf.txt").write_text("old", encoding="utf-8")
+            (docs_html / "old-demo.doc.html").write_text("old", encoding="utf-8")
+            pipeline = KnowledgeBasePipeline(
+                config={"kb_data_dir": temp_dir},
+                embedding_client=FakeEmbeddingClient(),
+                reranker_client=object(),
+            )
+
+            pipeline._reset_generated_document_artifacts()
+
+            self.assertFalse((docs_text / "old-demo.pdf.txt").exists())
+            self.assertFalse((docs_html / "old-demo.doc.html").exists())
+
 
 class KnowledgeBaseToolCompatibilityTests(unittest.TestCase):
     def test_search_tool_uses_vector_store_count_interface(self):
@@ -146,6 +165,61 @@ class DocumentExtractionReportTests(unittest.TestCase):
             [{"file_name": "empty.txt", "reason": "empty_or_unreadable"}],
             report["skipped_files"],
         )
+
+    def test_pdf_uses_ocr_fallback_when_pdf_has_no_text_layer(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pdf_path = Path(temp_dir) / "scanned.pdf"
+            pdf_path.write_bytes(b"not-used-in-this-mocked-test")
+            extractor = DocumentExtractor(temp_dir)
+
+            with patch.object(extractor, "_extract_pdf_with_ocr") as ocr:
+                ocr.return_value = [(1, "OCR extracted financial report")]
+                with patch("pdfplumber.open", side_effect=Exception("no text layer")):
+                    with patch("PyPDF2.PdfReader", side_effect=Exception("no text layer")):
+                        extracted = extractor._extract_pdf(str(pdf_path), pdf_path.name)
+
+        self.assertEqual("OCR extracted financial report\n", extracted["content"])
+        self.assertEqual([{"page_num": 1, "text": "OCR extracted financial report"}], extracted["pages"])
+        ocr.assert_called_once_with(str(pdf_path))
+
+    def test_legacy_doc_uses_word_com_before_platform_specific_tools(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            doc_path = Path(temp_dir) / "legacy.doc"
+            doc_path.write_bytes(bytes.fromhex("d0cf11e0a1b11ae1"))
+            extractor = DocumentExtractor(temp_dir)
+
+            with patch.object(
+                extractor,
+                "_extract_doc_with_word_com",
+                return_value="Word COM extracted regulatory document with enough text to pass the quality threshold.",
+            ) as word_com:
+                extracted = extractor._extract_doc(str(doc_path), doc_path.name)
+
+        self.assertEqual(
+            "Word COM extracted regulatory document with enough text to pass the quality threshold.",
+            extracted["content"],
+        )
+        word_com.assert_called_once_with(str(doc_path))
+
+    def test_pdf_ocr_reads_existing_cache_without_running_a_worker(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs_dir = Path(temp_dir) / "documents"
+            cache_dir = Path(temp_dir) / "ocr_cache"
+            docs_dir.mkdir()
+            pdf_path = docs_dir / "scanned.pdf"
+            pdf_path.write_bytes(b"scanned-pdf")
+            extractor = DocumentExtractor(str(docs_dir), ocr_cache_dir=str(cache_dir))
+            cache_path = Path(extractor._ocr_cache_path(str(pdf_path)))
+            cache_path.parent.mkdir(parents=True)
+            cache_path.write_text(
+                '{"pages": [[1, "cached OCR text"]], "completed": true}', encoding="utf-8"
+            )
+
+            with patch("knowledge_base.extractors.subprocess.run") as worker:
+                result = extractor._extract_pdf_with_ocr(str(pdf_path))
+
+        self.assertEqual([(1, "cached OCR text")], result)
+        worker.assert_not_called()
 
 
 class EmbeddingClientRetryTests(unittest.TestCase):

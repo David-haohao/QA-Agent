@@ -6,6 +6,8 @@
 import os
 import sys
 import hashlib
+import json
+import subprocess
 from typing import List, Dict, Optional
 
 # 提高递归深度限制，防止复杂PDF导致RecursionError
@@ -18,12 +20,15 @@ class DocumentExtractor:
     支持PDF(pdfplumber + PyPDF2)、Word、Excel和纯文本文件
     """
 
-    def __init__(self, documents_dir: str):
+    def __init__(self, documents_dir: str, ocr_cache_dir: Optional[str] = None):
         """
         初始化提取器
         documents_dir: 存放PDF等文档的目录路径
         """
         self.documents_dir = documents_dir
+        self.ocr_cache_dir = ocr_cache_dir or os.path.join(
+            os.path.dirname(os.path.abspath(documents_dir)), "kb_data", "ocr_cache"
+        )
 
     def extract_all(self) -> List[Dict]:
         """
@@ -74,10 +79,10 @@ class DocumentExtractor:
 
     def _extract_pdf(self, file_path: str, file_name: str) -> Optional[Dict]:
         """解析PDF文件，提取文本和分页信息"""
+        full_text = ""
+        pages = []
         try:
             import pdfplumber
-            full_text = ""
-            pages = []
             with pdfplumber.open(file_path) as pdf:
                 for page_num, page in enumerate(pdf.pages):
                     page_text = page.extract_text()
@@ -87,16 +92,11 @@ class DocumentExtractor:
                             "text": page_text,
                         })
                         full_text += page_text + "\n"
-            if full_text.strip():
-                return {
-                    "file_path": file_path,
-                    "file_name": file_name,
-                    "content": full_text,
-                    "pages": pages,
-                    "doc_id": hashlib.md5(file_path.encode()).hexdigest()[:12],
-                }
-        except Exception as e:
-            # pdfplumber失败时回退到PyPDF2
+        except Exception:
+            pass
+
+        if not full_text.strip():
+            # pdfplumber无法提取文本时回退到PyPDF2。
             try:
                 from PyPDF2 import PdfReader
                 full_text = ""
@@ -105,17 +105,100 @@ class DocumentExtractor:
                     text = page.extract_text()
                     if text:
                         full_text += text + "\n"
-                if full_text.strip():
-                    return {
-                        "file_path": file_path,
-                        "file_name": file_name,
-                        "content": full_text,
-                        "pages": [],
-                        "doc_id": hashlib.md5(file_path.encode()).hexdigest()[:12],
-                    }
             except Exception:
-                print(f"无法解析文件: {file_path}")
+                pass
+
+        if not full_text.strip():
+            ocr_pages = self._extract_pdf_with_ocr(file_path)
+            if ocr_pages:
+                pages = [
+                    {"page_num": page_num, "text": page_text}
+                    for page_num, page_text in ocr_pages
+                ]
+                full_text = "".join(f"{page_text}\n" for _, page_text in ocr_pages)
+
+        if full_text.strip():
+            return {
+                "file_path": file_path,
+                "file_name": file_name,
+                "content": full_text,
+                "pages": pages,
+                "doc_id": hashlib.md5(file_path.encode()).hexdigest()[:12],
+            }
         return None
+
+    def _extract_pdf_with_ocr(self, file_path: str):
+        """对没有文本层的扫描 PDF 执行本地中文 OCR。
+
+        每份 PDF 在独立子进程中执行，避免 OCR 运行时的图像内存跨文件累积；
+        成功结果缓存到本地，重建中断后可直接续用。
+        """
+        cache_path = self._ocr_cache_path(file_path)
+        cached = self._read_ocr_cache(cache_path)
+        if cached is not None and self._ocr_cache_completed(cache_path):
+            return cached
+
+        try:
+            command = [
+                sys.executable,
+                "-m",
+                "knowledge_base.extractors.ocr_worker",
+                file_path,
+                cache_path,
+            ]
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=3600,
+            )
+            pages = self._read_ocr_cache(cache_path) or []
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or "OCR worker exited unsuccessfully")
+            return pages
+        except Exception as exc:
+            print(f"OCR解析失败: {file_path}, 错误: {exc}")
+            return []
+
+    def _ocr_cache_path(self, file_path: str) -> str:
+        """返回与文件内容绑定的 OCR 缓存路径。"""
+        hasher = hashlib.sha256()
+        with open(file_path, "rb") as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                hasher.update(block)
+        return os.path.join(self.ocr_cache_dir, f"{hasher.hexdigest()}.json")
+
+    @staticmethod
+    def _read_ocr_cache(cache_path: str):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as cache_file:
+                payload = json.load(cache_file)
+            return [
+                (int(page_num), str(page_text))
+                for page_num, page_text in payload.get("pages", [])
+                if str(page_text).strip()
+            ]
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _ocr_cache_completed(cache_path: str) -> bool:
+        try:
+            with open(cache_path, "r", encoding="utf-8") as cache_file:
+                return bool(json.load(cache_file).get("completed", False))
+        except (OSError, ValueError, TypeError):
+            return False
+
+    @staticmethod
+    def _write_ocr_cache(cache_path: str, pages) -> None:
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        temp_path = cache_path + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as cache_file:
+            json.dump({"pages": pages}, cache_file, ensure_ascii=False)
+        os.replace(temp_path, cache_path)
 
     def _extract_docx(self, file_path: str, file_name: str) -> Optional[Dict]:
         """解析Word文档"""
@@ -140,19 +223,23 @@ class DocumentExtractor:
         使用 textutil (macOS)、antiword/catdoc (Linux) 或 olefile 提取文本"""
         full_text = ""
 
-        # 策略1: macOS textutil（系统自带，最可靠）
-        try:
-            import subprocess, tempfile
-            result = subprocess.run(
-                ["textutil", "-convert", "txt", "-stdout", file_path],
-                capture_output=True, text=True, timeout=60,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                full_text = result.stdout.strip()
-        except Exception:
-            pass
+        # 策略1: Windows Microsoft Word COM（支持中文旧版 .doc）
+        full_text = self._extract_doc_with_word_com(file_path)
 
-        # 策略2: antiword (Linux 常见)
+        # 策略2: macOS textutil（系统自带，最可靠）
+        if not full_text:
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["textutil", "-convert", "txt", "-stdout", file_path],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    full_text = result.stdout.strip()
+            except Exception:
+                pass
+
+        # 策略3: antiword (Linux 常见)
         if not full_text:
             try:
                 import subprocess
@@ -165,7 +252,7 @@ class DocumentExtractor:
             except Exception:
                 pass
 
-        # 策略3: catdoc (Linux 备选)
+        # 策略4: catdoc (Linux 备选)
         if not full_text:
             try:
                 import subprocess
@@ -178,7 +265,7 @@ class DocumentExtractor:
             except Exception:
                 pass
 
-        # 策略4: python-pptx / olefile 直接读取（最后手段）
+        # 策略5: olefile 直接读取（最后手段）
         if not full_text:
             try:
                 import olefile
@@ -205,6 +292,41 @@ class DocumentExtractor:
                 "doc_id": hashlib.md5(file_path.encode()).hexdigest()[:12],
             }
         return None
+
+    def _extract_doc_with_word_com(self, file_path: str) -> str:
+        """使用本机 Microsoft Word 打开旧版 DOC 并取得正文文本。"""
+        if os.name != "nt":
+            return ""
+
+        word = None
+        document = None
+        try:
+            import win32com.client
+
+            word = win32com.client.DispatchEx("Word.Application")
+            word.Visible = False
+            word.DisplayAlerts = 0
+            document = word.Documents.Open(
+                os.path.abspath(file_path),
+                ReadOnly=True,
+                AddToRecentFiles=False,
+                Visible=False,
+            )
+            return (document.Content.Text or "").strip()
+        except Exception as exc:
+            print(f"Word COM解析失败: {file_path}, 错误: {exc}")
+            return ""
+        finally:
+            if document is not None:
+                try:
+                    document.Close(False)
+                except Exception:
+                    pass
+            if word is not None:
+                try:
+                    word.Quit()
+                except Exception:
+                    pass
 
     def _extract_excel(self, file_path: str, file_name: str) -> Optional[Dict]:
         """解析Excel文档（.xlsx用openpyxl, .xls用xlrd）"""

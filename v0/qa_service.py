@@ -23,7 +23,6 @@ from pre_processing.rejection_templates import RejectionTemplates
 from knowledge_base.pipeline import KnowledgeBasePipeline
 from knowledge_base.retrieval.retriever import HybridRetriever
 from knowledge_base.retrieval.source_binding import SourceBinding
-from knowledge_base.indexing.vector_index import VectorIndexBuilder
 from knowledge_base.indexing.bm25_index import BM25Index
 from knowledge_base.indexing.document_graph import DocumentGraph
 
@@ -536,12 +535,7 @@ class QAService:
     def get_kb_overview(self) -> dict:
         """获取知识库概览"""
         try:
-            vi = VectorIndexBuilder(
-                kb_data_dir=self.config.kb_config.get("kb_data_dir", "./kb_data"),
-                collection_name=self.config.kb_config.get("chroma_collection", "qa_knowledge"),
-                embedding_client=self.embedding_client,
-                dimension=self.config.embeddings_config.get("dimension", 1024),
-            )
+            vi = self.kb_pipeline.get_vector_index()
             doc_list = vi.list_documents()
             return {
                 "domains": self.config.domains,

@@ -30,26 +30,47 @@ class DocumentExtractor:
         批量提取目录下所有文档的内容
         返回: [{"file_path": ..., "file_name": ..., "content": ..., "pages": [...]}, ...]
         """
+        results, _ = self.extract_all_with_report()
+        return results
+
+    def extract_all_with_report(self):
+        """提取所有支持的文件，并显式记录未能提取的文件。"""
         results = []
+        skipped_files = []
+        scanned_files = 0
         for root, dirs, files in os.walk(self.documents_dir):
             for fname in files:
                 file_path = os.path.join(root, fname)
                 fname_lower = fname.lower()
                 if fname_lower.endswith(".pdf"):
+                    scanned_files += 1
                     extracted = self._extract_pdf(file_path, fname)
                 elif fname_lower.endswith(".docx"):
+                    scanned_files += 1
                     extracted = self._extract_docx(file_path, fname)
                 elif fname_lower.endswith((".xlsx", ".xls")):
+                    scanned_files += 1
                     extracted = self._extract_excel(file_path, fname)
                 elif fname_lower.endswith(".doc"):
+                    scanned_files += 1
                     extracted = self._extract_doc(file_path, fname)
                 elif fname_lower.endswith((".txt", ".md", ".csv")):
+                    scanned_files += 1
                     extracted = self._extract_text_file(file_path, fname)
                 else:
                     continue  # 跳过不支持的文件类型
                 if extracted and extracted.get("content"):
                     results.append(extracted)
-        return results
+                else:
+                    skipped_files.append({
+                        "file_name": fname,
+                        "reason": "empty_or_unreadable",
+                    })
+        return results, {
+            "scanned_files": scanned_files,
+            "success_files": len(results),
+            "skipped_files": skipped_files,
+        }
 
     def _extract_pdf(self, file_path: str, file_name: str) -> Optional[Dict]:
         """解析PDF文件，提取文本和分页信息"""

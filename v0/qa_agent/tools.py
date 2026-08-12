@@ -71,14 +71,8 @@ def search_knowledge_base(
 
     try:
         # 检查知识库是否有内容
-        from knowledge_base.indexing.vector_index import VectorIndexBuilder
-        vi = VectorIndexBuilder(
-            kb_data_dir=pipeline.kb_data_dir,
-            collection_name=pipeline.collection_name,
-            embedding_client=pipeline.embedding_client,
-            dimension=pipeline.dimension,
-        )
-        if vi.collection.count() == 0:
+        vi = pipeline.get_vector_index()
+        if vi.get_document_count() == 0:
             # return "知识库尚未构建索引。请先用 python run.py build-kb 构建知识库。"
             return "知识库尚未构建索引。"
 
@@ -149,13 +143,7 @@ def list_knowledge_base_sources() -> str:
     pipeline = _get_kb()
 
     try:
-        from knowledge_base.indexing.vector_index import VectorIndexBuilder
-        vi = VectorIndexBuilder(
-            kb_data_dir=pipeline.kb_data_dir,
-            collection_name=pipeline.collection_name,
-            embedding_client=pipeline.embedding_client,
-            dimension=pipeline.dimension,
-        )
+        vi = pipeline.get_vector_index()
         doc_list = vi.list_documents()
 
         if not doc_list:

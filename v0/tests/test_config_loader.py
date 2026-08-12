@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from config_loader import Config
+from models.llm_client import LLMClient
 import download_models
 
 
@@ -37,6 +38,21 @@ reranker:
         self.assertEqual("env-llm-key", config.llm_config["api_key"])
         self.assertEqual("env-embedding-key", config.embeddings_config["api_key"])
         self.assertEqual("env-reranker-key", config.reranker_config["api_key"])
+
+
+class LLMClientTimeoutTests(unittest.TestCase):
+    @patch("models.llm_client.OpenAI")
+    def test_openai_client_uses_configured_timeout(self, openai_client):
+        LLMClient(
+            {
+                "api_key": "test-key",
+                "base_url": "http://example.test/v1",
+                "model": "test-model",
+                "timeout": 600,
+            }
+        )
+
+        self.assertEqual(600, openai_client.call_args.kwargs["timeout"])
 
 
 class ModelDownloadTests(unittest.TestCase):

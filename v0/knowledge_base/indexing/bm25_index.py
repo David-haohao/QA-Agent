@@ -216,6 +216,30 @@ class BM25Index:
         self._save()
         return len(new_chunks)
 
+    def replace_chunks_for_files(self, file_names: List[str], new_chunks: List[Dict]) -> int:
+        """Replace all sparse-index chunks belonging to changed source files."""
+        if not self._loaded and os.path.exists(self.index_file):
+            self._load()
+
+        file_name_set = set(file_names)
+        retained_chunks = []
+        for chunk_id, content, metadata in zip(self.chunk_ids, self.documents, self.metadatas):
+            source_file = metadata.get("source_file", metadata.get("file_name", ""))
+            if source_file not in file_name_set:
+                retained_chunks.append(
+                    {"chunk_id": chunk_id, "content": content, "metadata": metadata}
+                )
+
+        self.term_doc_freq = {}
+        self.term_freqs = []
+        self.doc_lengths = []
+        self.documents = []
+        self.chunk_ids = []
+        self.metadatas = []
+        self.avg_doc_length = 0.0
+        self._loaded = False
+        return self.build_index(retained_chunks + new_chunks)
+
     def load_if_exists(self) -> bool:
         """加载已有索引，返回是否成功"""
         if os.path.exists(self.index_file):

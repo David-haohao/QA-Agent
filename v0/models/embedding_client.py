@@ -5,6 +5,7 @@
 # ============================================================
 
 import json
+import time
 import requests
 from typing import List
 
@@ -22,6 +23,9 @@ class EmbeddingClient:
         self.api_key = config.get("api_key", "")
         self.batch_size = config.get("batch_size", 256)
         self.dimension = config.get("dimension", 1024)
+        self.request_retries = config.get("request_retries", 3)
+        self.retry_delay_seconds = config.get("retry_delay_seconds", 1)
+        self.request_timeout_seconds = config.get("request_timeout_seconds", 600)
 
     def embed(self, texts: List[str]) -> List[List[float]]:
         """
@@ -41,15 +45,30 @@ class EmbeddingClient:
                 "model": self.model,
                 "input": [x[:512] for x in batch],
             }
-            res = requests.post(
-                json=data,
-                url=self.url,
-                headers=headers,
-                timeout=120,  # CPU推理bge-m3单条约10s，批量+冷启动需留足余量
-            )
-            # 解析API返回: {"data": [{"embedding": [...], "index": 0}, ...]}
-            res_json = res.json()
-            embeddings = [item["embedding"] for item in res_json["data"]]
+            last_error = None
+            for attempt in range(1, self.request_retries + 1):
+                try:
+                    res = requests.post(
+                        json=data,
+                        url=self.url,
+                        headers=headers,
+                        timeout=self.request_timeout_seconds,
+                    )
+                    res.raise_for_status()
+                    res_json = res.json()
+                    embeddings = [item["embedding"] for item in res_json["data"]]
+                    if len(embeddings) != len(batch):
+                        raise ValueError(
+                            f"Embedding response count mismatch: expected {len(batch)}, got {len(embeddings)}"
+                        )
+                    break
+                except (requests.RequestException, OSError, ValueError, KeyError) as exc:
+                    last_error = exc
+                    if attempt == self.request_retries:
+                        raise RuntimeError(
+                            f"Embedding request failed after {attempt} attempts: {exc}"
+                        ) from exc
+                    time.sleep(self.retry_delay_seconds * attempt)
             result.extend(embeddings)
         return result
 

@@ -28,10 +28,23 @@ class KnowledgeBasePipeline:
         self.kb_data_dir = config.get("kb_data_dir", "./kb_data")
         self.chunk_size = config.get("chunk_size", 500)
         self.chunk_overlap = config.get("chunk_overlap", 50)
-        self.collection_name = config.get("chroma_collection", "qa_knowledge")
+        self.collection_name = config.get("vector_collection", "qa_knowledge")
         self.dimension = config.get("dimension", 1024)
+        self._vector_index = None
 
         os.makedirs(self.kb_data_dir, exist_ok=True)
+
+    def get_vector_index(self):
+        """返回当前进程共享的 Qdrant 向量索引客户端。"""
+        if self._vector_index is None:
+            from knowledge_base.indexing.qdrant_index import QdrantVectorIndex
+            self._vector_index = QdrantVectorIndex(
+                kb_data_dir=self.kb_data_dir,
+                collection_name=self.collection_name,
+                embedding_client=self.embedding_client,
+                dimension=self.dimension,
+            )
+        return self._vector_index
 
     def build(self) -> Dict:
         """
@@ -40,7 +53,6 @@ class KnowledgeBasePipeline:
         """
         from knowledge_base.extractors import DocumentExtractor
         from knowledge_base.indexing.text_chunker import DocumentChunker
-        from knowledge_base.indexing.vector_index import VectorIndexBuilder
         from knowledge_base.indexing.bm25_index import BM25Index
         from knowledge_base.indexing.document_graph import DocumentGraph
 
@@ -51,11 +63,14 @@ class KnowledgeBasePipeline:
         # Phase 1: 提取与切片
         print("[Phase 1] 提取文档内容...")
         extractor = DocumentExtractor(self.documents_dir)
-        docs = extractor.extract_all()
+        docs, extraction_report = extractor.extract_all_with_report()
         if not docs:
             print("未找到可处理的文档!")
             return {"doc_count": 0, "chunk_count": 0}
-        print(f"  提取了 {len(docs)} 个文档")
+        print(
+            f"  扫描 {extraction_report['scanned_files']} 个文件，"
+            f"成功提取 {len(docs)} 个，跳过 {len(extraction_report['skipped_files'])} 个"
+        )
 
         # 保存提取的文档全文（保留原始完整文档名，不做任何字符串处理）
         docs_text_dir = os.path.join(self.kb_data_dir, "docs_text")
@@ -98,14 +113,12 @@ class KnowledgeBasePipeline:
         print(f"  chunk→文档索引已保存至 {index_path} ({len(chunk_doc_index)} 条)")
 
         # Phase 2: 结构化与索引
-        print("[Phase 2] 构建向量索引(ChromaDB)...")
-        vector_index = VectorIndexBuilder(
-            kb_data_dir=self.kb_data_dir,
-            collection_name=self.collection_name,
-            embedding_client=self.embedding_client,
-            dimension=self.dimension,
-        )
-        vector_count = vector_index.build_index(chunks)
+        print("[Phase 2] 重建 Qdrant 向量索引...")
+        if self._vector_index is not None:
+            self._vector_index.close()
+            self._vector_index = None
+        vector_index = self.get_vector_index()
+        vector_count = vector_index.rebuild(chunks)
         print(f"  向量索引构建完成: {vector_count} 条")
 
         print("[Phase 2] 构建BM25关键词索引...")
@@ -124,6 +137,11 @@ class KnowledgeBasePipeline:
             "total_chunks": len(chunks),
             "doc_names": [d["file_name"] for d in docs],
             "build_time": __import__("datetime").datetime.now().isoformat(),
+            "vector_store": "qdrant",
+            "vector_collection": self.collection_name,
+            "vector_dimension": self.dimension,
+            "embedding_model": getattr(self.embedding_client, "model", "unknown"),
+            "extraction_report": extraction_report,
             "config": {
                 "chunk_size": self.chunk_size,
                 "chunk_overlap": self.chunk_overlap,
@@ -137,11 +155,6 @@ class KnowledgeBasePipeline:
         print("[Phase 3] 预转换文档为HTML预览格式...")
         pre_convert_count = self._pre_convert_documents()
         print(f"  预转换完成: {pre_convert_count} 个文档")
-
-        # Phase 4: 自动更新领域配置（基于文档内容分析）
-        print("[Phase 4] 分析文档内容，自动更新领域配置...")
-        self._auto_update_domains_config(docs)
-        print(f"  领域配置已自动更新")
 
         print("=" * 60)
         print(f"知识库构建完成！文档数: {len(docs)}, 文本块数: {len(chunks)}")
@@ -332,18 +345,12 @@ class KnowledgeBasePipeline:
         query: 查询文本
         返回: 检索结果列表
         """
-        from knowledge_base.indexing.vector_index import VectorIndexBuilder
         from knowledge_base.indexing.bm25_index import BM25Index
         from .retrieval.retriever import HybridRetriever
         from .retrieval.source_binding import SourceBinding
 
         # 初始化检索组件
-        vector_index = VectorIndexBuilder(
-            kb_data_dir=self.kb_data_dir,
-            collection_name=self.collection_name,
-            embedding_client=self.embedding_client,
-            dimension=self.dimension,
-        )
+        vector_index = self.get_vector_index()
         bm25_index = BM25Index(self.kb_data_dir)
         bm25_index.load_if_exists()
 

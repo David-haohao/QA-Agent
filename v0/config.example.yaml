@@ -6,13 +6,16 @@ llm:
   provider: openai
   max_tokens: 4096
   temperature: 0.0
-  timeout: 120
+  timeout: 600
 
 embeddings:
   api_key: ""
   model: bge-m3
   url: http://localhost:4000/v1/embeddings
-  batch_size: 256
+  batch_size: 64
+  request_retries: 3
+  retry_delay_seconds: 1
+  request_timeout_seconds: 600
   dimension: 1024
 
 reranker:
@@ -24,7 +27,8 @@ reranker:
 knowledge_base:
   documents_dir: ./documents
   kb_data_dir: ./kb_data
-  chroma_collection: qa_knowledge
+  vector_store: qdrant
+  vector_collection: qa_knowledge
   oa:
     oa_url: http://localhost:8888
     oa_client:

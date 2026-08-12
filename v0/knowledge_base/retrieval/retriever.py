@@ -1,10 +1,10 @@
 # ============================================================
-# 混合检索器 — 融合Dense(ChromaDB)和Sparse(BM25)两种检索
+# 混合检索器 — 融合Dense(Qdrant)和Sparse(BM25)两种检索
 # 使用RRF(Reciprocal Rank Fusion)融合，再经Reranker精排
 # ============================================================
 
 from typing import List, Dict
-from knowledge_base.indexing.vector_index import VectorIndexBuilder
+from knowledge_base.indexing.qdrant_index import QdrantVectorIndex
 from knowledge_base.indexing.bm25_index import BM25Index
 
 
@@ -14,9 +14,9 @@ class HybridRetriever:
     在线检索的核心入口
     """
 
-    def __init__(self, vector_index: VectorIndexBuilder, bm25_index: BM25Index, reranker_client):
+    def __init__(self, vector_index: QdrantVectorIndex, bm25_index: BM25Index, reranker_client):
         """
-        vector_index: ChromaDB向量索引
+        vector_index: Qdrant向量索引
         bm25_index: BM25关键词索引
         reranker_client: RerankerClient实例
         """

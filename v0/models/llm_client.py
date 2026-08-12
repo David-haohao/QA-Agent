@@ -24,7 +24,7 @@ class LLMClient:
         self.client = OpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
-            timeout=180.0,  # Agent工作流需要充足时间
+            timeout=float(self.timeout),
         )
 
     def chat(self, messages: list, stream: bool = False):
@@ -97,6 +97,6 @@ class LLMClient:
             base_url=self.base_url,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            timeout=180.0,
+            timeout=float(self.timeout),
             extra_body={"enable_thinking": True},  # Qwen思考模式
         )

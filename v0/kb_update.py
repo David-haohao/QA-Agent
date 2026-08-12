@@ -196,7 +196,6 @@ def incremental_build_kb(kb_pipeline, new_files: list) -> dict:
 
     from knowledge_base.extractors import DocumentExtractor
     from knowledge_base.indexing.text_chunker import DocumentChunker
-    from knowledge_base.indexing.vector_index import VectorIndexBuilder
     from knowledge_base.indexing.bm25_index import BM25Index
     from knowledge_base.indexing.document_graph import DocumentGraph
 
@@ -272,6 +271,10 @@ def incremental_build_kb(kb_pipeline, new_files: list) -> dict:
         old_chunks = {}
         old_files = {}
 
+    for fname in new_files:
+        for chunk_id in old_files.pop(fname, []):
+            old_chunks.pop(chunk_id, None)
+
     for c in new_chunks:
         cid = c["chunk_id"]
         fname = c.get("file_name", "")
@@ -294,29 +297,35 @@ def incremental_build_kb(kb_pipeline, new_files: list) -> dict:
         }, f, ensure_ascii=False)
     print(f"[kb_update] chunk→文档索引已更新 ({len(old_chunks)} 条)")
 
-    # Phase 2: 向量索引 — 增量追加新块
-    vector_index = VectorIndexBuilder(
-        kb_data_dir=kb_data_dir,
-        collection_name=kb_pipeline.collection_name,
-        embedding_client=kb_pipeline.embedding_client,
-        dimension=kb_pipeline.dimension,
-    )
+    # Phase 2: Qdrant 向量索引 — 先移除同名文档，避免残留旧文本块
+    vector_index = kb_pipeline.get_vector_index()
+    for file_name in new_files:
+        vector_index.delete_by_file_name(file_name)
     vector_count = vector_index.add_chunks(new_chunks)
     print(f"[kb_update] 向量索引增量追加: {vector_count} 条")
 
-    # BM25 索引 — 需要全量重建（基于 chunk_doc_index 的映射无法还原完整内容）
-    # 仅对 BM25 做文本追加（使用原有接口）
-    try:
-        bm25_index = BM25Index(kb_data_dir)
-        bm25_count = bm25_index.add_chunks(new_chunks)
-        print(f"[kb_update] BM25索引增量追加: {bm25_count} 条")
-    except (AttributeError, Exception):
-        print("[kb_update] BM25不支持增量追加，跳过")
+    # BM25 索引 — 将变更文件的旧文本块替换为新文本块
+    bm25_index = BM25Index(kb_data_dir)
+    bm25_count = bm25_index.replace_chunks_for_files(new_files, new_chunks)
+    print(f"[kb_update] BM25索引已替换，当前文本块: {bm25_count} 条")
 
-    # 文档图谱 — 更新
+    # 文档图谱 — 基于完整块集合重建，避免只保留本次新增文档
+    all_chunks = []
+    for chunk_id, content, metadata in zip(
+        bm25_index.chunk_ids, bm25_index.documents, bm25_index.metadatas
+    ):
+        chunk_info = old_chunks.get(chunk_id, {})
+        all_chunks.append({
+            "chunk_id": chunk_id,
+            "content": content,
+            "metadata": metadata,
+            "doc_id": chunk_info.get("doc_id", ""),
+            "file_name": chunk_info.get("file_name", metadata.get("source_file", "")),
+            "chunk_index": chunk_info.get("chunk_index", metadata.get("chunk_index", 0)),
+        })
     doc_graph = DocumentGraph(kb_data_dir)
-    doc_graph.build_graph(new_chunks)
-    print("[kb_update] 文档图谱已更新（新块追加）")
+    doc_graph.build_graph(all_chunks)
+    print("[kb_update] 文档图谱已按完整文本块集合重建")
 
     # 更新元数据
     metadata_path = os.path.join(kb_data_dir, "metadata.json")
